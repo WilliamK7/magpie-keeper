@@ -1,0 +1,45 @@
+{
+  "magpie_dir": "D:\\Program Files\\magpie",
+  "magpie_url": "http://127.0.0.1:3425/v1",
+  "magpie_key": "magpie-transcribe",
+  "roles": ["transcribe"],
+  "channel_sync_interval": "6h",
+  "excluded_providers": [],
+  "max_evaluations_per_cycle": 2,
+  "max_evaluations_per_day": 6,
+  "cooldown_seconds": 3600,
+  "bailian_trial": {
+    "enabled": true,
+    "paused": false,
+    "workspace_id": "your-workspace-id",
+    "template_provider": "transcribe-bailian-trial",
+    "commercial_provider": "transcribe-bailian",
+    "max_active_models": 3,
+    "refresh_interval": "60s",
+    "excluded_models": []
+  },
+  "providers": {
+    "transcribe-openrouter-free": {
+      "adapter": "openrouter",
+      "include": ["*:free"],
+      "billing": ["free"],
+      "max_candidates": {"free": 5}
+    },
+    "vercel": {
+      "adapter": "vercel",
+      "preferred": ["openai/gpt-6-luna", "google/gemini-3.8-flash"],
+      "price_exceptions": ["openai/gpt-6-luna", "google/gemini-3.8-flash"],
+      "max_input_usd_per_million": 2.0,
+      "max_output_usd_per_million": 10.0,
+      "billing": ["free", "commercial"],
+      "max_candidates": {"free": 2, "commercial": 3}
+    },
+    "transcribe-bailian": {
+      "adapter": "registry",
+      "preferred": ["qwen3.8-max", "deepseek-v4.1-flash", "qwen3.8-flash"],
+      "price_exceptions": ["qwen3.8-max", "deepseek-v4.1-flash", "qwen3.8-flash"],
+      "billing": ["commercial"],
+      "max_candidates": {"commercial": 4}
+    }
+  }
+}
