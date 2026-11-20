@@ -1,6 +1,6 @@
-# Magpie-Keeper（2026 Agent 时代事件驱动架构版）完整项目规格文档
+# Magpie-Keeper（2026 Agent 时代事件驱动架构版）架构与协议规格文档
 
-> 本文档定义一套**完全独立于字幕主项目、面向本机便携版 Magpie 网关的轻量事件驱动运维工具**。可直接放入全新空文件夹交付多 Agent 并行从零实现。
+> 本文档是 **Magpie-Keeper** 的架构边界与外部协议参考文档。当前实现细节以仓库源码与自动化测试为准；涉及 Magpie 兼容协议、目录适配器、合成验收规则或百炼免费试用池协议调整时，须同步更新本文档。
 
 ---
 
@@ -52,41 +52,25 @@ flowchart TD
     Bailian --> Domain
 ```
 
-```text
-magpie-keeper/
-├── AGENTS.md                        # 给并行 Agent 的边界铁律与验收命令
-├── go.mod
-├── cmd/magpie-keeper/main.go        # Cobra 子命令、信号与 --companion stdin-EOF 监听
-├── internal/
-│   ├── domain/                      # 冻结核心类型与窄端口接口（零外部依赖）
-│   ├── config/                      # data/channels.json 加载与校验
-│   ├── state/                       # 单一 data/state.json 原子读写与日预算扣减
-│   ├── magpie/
-│   │   ├── registry.go              # 读取 providers.json / plugin-providers.json / settings.json / cache
-│   │   ├── cli.go                   # magpie.com 命令封装与 providers.json 自动备份
-│   │   └── tailer.go                # 增量监听 data/routing/*.jsonl 输出事件 channel
-│   ├── catalog/
-│   │   ├── adapter.go               # CatalogAdapter 注册表与费用/价格规则
-│   │   ├── registry.go              # Magpie 本地/插件目录适配器
-│   │   ├── openrouter.go            # OpenRouter 免费模型适配器
-│   │   ├── vercel.go                # Vercel AI Gateway 价格适配器
-│   │   └── vllmsr.go                # vLLM-SR 动态路由适配器
-│   ├── admit/
-│   │   ├── suite.go                 # 3 道内置合成英译中样题与确定性规则校验
-│   │   └── evaluator.go             # 流式 SSE 验收执行器（无裁判模型）
-│   ├── planner/                     # 100% 纯函数：计算目标子组/主组与 magpie.com 变更指令
-│   ├── bailian/
-│   │   ├── quota_bridge.go          # stdin/stdout 调用 Node 桥接脚本
-│   │   ├── limits.go                # 百炼 /api/v1/models/limits 查询与四等分 RPM 计算
-│   │   └── pool.go                  # 最多 3 个试用子通道生命周期决策
-│   └── coordinator/                 # 单写者 Actor：串行消费各类事件，安全更新 Magpie 与 state.json
-├── scripts/
-│   └── bailian-quota-bridge.mjs     # 可选：调用 bailian-cli 2.7.2 查询全量免费额度
-└── data/
-    ├── channels.json                # 用户维护配置
-    ├── state.json                   # 单一运行状态（验收缓存、日预算、托管归属、试用池）
-    └── backups/                     # 变更前自动备份的 providers.json
-```
+### 包级分层布局（概览）
+
+> 以下只记录模块分层与职责边界；各包内具体的 `.go` 文件拆分以仓库当前源码为准。
+
+| 路径 | 职责边界 |
+| --- | --- |
+| `AGENTS.md` / `go.mod` | 仓库维护规范、依赖约束与验证命令 |
+| `cmd/magpie-keeper/` | CLI 入口、Cobra 子命令装配、信号处理与 `--companion` stdin-EOF 监听 |
+| `internal/domain/` | 冻结核心模型与窄端口接口（仅 Go 标准库，零外部依赖） |
+| `internal/config/` | `data/channels.json` 加载与校验 |
+| `internal/state/` | 单一 `data/state.json` 原子读写与日预算扣减 |
+| `internal/magpie/` | 便携目录解析（含真实 Magpie JSON 兼容）、`providers.json` 自动备份、`magpie.com` 封装、`data/routing/*.jsonl` 增量监听 |
+| `internal/catalog/` | 插件化 `CatalogAdapter`（`registry` / `openrouter` / `vercel` / `vllm-sr`）与费用/价格过滤 |
+| `internal/admit/` | 3 道内置合成英译中样题与流式 SSE 确定性验收 |
+| `internal/planner/` | 100% 纯函数分组差异规划、人工保留尊重（`manual_hold`）与自底向上变更序列 |
+| `internal/bailian/` | 百炼额度桥接调用、`/api/v1/models/limits` 查询与 RPM/TPM 四等分试用池决策 |
+| `internal/coordinator/` | Single-Writer Actor：串行消费各类事件，安全更新 Magpie 与 `data/state.json` |
+| `scripts/` | 可选 `bailian-quota-bridge.mjs`（调用本机 `bailian-cli` 查询全量免费额度） |
+| `data/` | 运行时目录（仅模板 `channels.example.json` 入 Git；`channels.json`、`state.json`、`backups/` 不入库） |
 
 ---
 
@@ -138,6 +122,9 @@ type RouteAlert struct {
 
 - 校验 `<magpie_dir>/.portable`、`<magpie_dir>/magpie.com`、`data/providers.json` 存在；读 `data/settings.json` 核对端口（默认 `3425`）与 `magpie_url` 一致。
 - 合并 `data/providers.json` 与 `data/plugin-providers.json`（插件 `signedIn == false` 视同停用）及 `data/cache/models/<id>.json`（须校验 `base` 与当前 endpoint 一致）。
+- **真实 Magpie JSON 格式兼容**（对应 `internal/magpie/registry_parse.go`、`registry_flex.go` 与 `TestReadRegistryRealMagpieFormats`）：
+  - 供应商 `models` 兼容逗号分隔字符串、字符串数组及 `plugin-providers.json` 中的对象数组（含 `id` 与内嵌元数据）；URL、限流与列表字段兼容 `chat`/`api`/`base`/`baseAPI`/`responses`、`rpm`/`maxRPM`、`list`/`listOff`。
+  - 分组字段兼容 `id`/`name`、`models`/`members`、`stays`/`affinity`、`weight`/`weights`，且 `group.off` 同时兼容布尔开关与被禁用成员数组（`[]string`）。
 - **不可用过滤**：Provider 级 `off` / `noModels` / `signedIn == false`；Model 级位于 `modelsOff`、`_models[name].decides == true`、输出模态不含 `text` 或 `type != "language"`。
 - **尊重人工干预**：曾由本工具加入的成员若被用户手工从分组移除、放入 `group.off` 或对应分组设为 `hidden == true`，将其记录为 `manual_hold`，**永不强行加回**。
 
@@ -278,21 +265,3 @@ group/transcribe (routing=order, stays=off)
 | `magpie-keeper sync [--apply] [--if-stale 6h] [--dry-run]` | 发现并验收普通渠道候选；`--dry-run` 仅打印差异计划，`--apply` 备份并写入 Magpie。 |
 | `magpie-keeper sync-trial` | 单次刷新百炼免费试用额度并更新 `group/transcribe-trial`。 |
 | `magpie-keeper add-provider <id>` / `pause-trial` / `resume-trial` | 快速增删渠道配置与暂停/恢复百炼试用池。 |
-
----
-
-## 9. 多 Agent 并行协同开发蓝图（Swarm Execution Blueprint）
-
-- **Wave 0 — 契约地基（1 个 Agent）**
-  - 初始化 `go.mod`、`AGENTS.md`、`internal/domain`、`internal/config`、`internal/state`。
-  - 验收：`go test ./internal/domain/... ./internal/config/... ./internal/state/...` 通过。
-- **Wave 1 — 5 路全并行实现（5 个 Agent 同时开工，零冲突）**
-  - **Agent-Magpie**：实现 `internal/magpie`（registry 解析、备份、CLI 封装、`routing/*.jsonl` 增量 tailer）。
-  - **Agent-Catalog**：实现 `internal/catalog`（4 个 `CatalogAdapter` + 费用/价格过滤）。
-  - **Agent-Admit**：实现 `internal/admit`（3 道合成样题 + 流式 SSE 确定性校验）。
-  - **Agent-Planner**：实现 `internal/planner`（纯函数分组规划、人工保留尊重、自底向上变更序列）。
-  - **Agent-Bailian**：实现 `internal/bailian` + `scripts/bailian-quota-bridge.mjs`（stdin/stdout 桥接、RPM/TPM 四等分、试用池决策）。
-- **Wave 2 — 协调器与 CLI 组装（1 个 Agent）**
-  - 实现 `internal/coordinator`（Single-Writer Actor 事件循环、懒刷新、伴生 `stdin` EOF 优雅退出）与 `cmd/magpie-keeper`。
-- **Wave 3 — 验收测试（Verifier Agent）**
-  - 运行 `go vet ./...`、`go test -race ./...`、`go build -o magpie-keeper.exe ./cmd/magpie-keeper`；离线模拟完整 `watch --companion` 生命周期（含懒刷新跳过、`routing/*.jsonl` 写入 `free quota exhausted` 秒级触发下线补位、关闭 `stdin` 优雅退出）。
